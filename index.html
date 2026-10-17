@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>領漲型態 - AI即時訊號選股旗艦版</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel Compiler for JSX -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js" crossorigin></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'Noto Sans TC', 'sans-serif'] },
+          colors: {
+            app: {
+              bg: '#0a0d14',
+              panel: '#121622',
+              card: '#161b28',
+              cardHover: '#1c2333',
+              border: '#232b3e',
+              red: '#ff3b57',
+              redBg: 'rgba(255, 59, 87, 0.12)',
+              green: '#00d285',
+              greenBg: 'rgba(0, 210, 133, 0.12)',
+              gold: '#ffb800',
+              goldBg: 'rgba(255, 184, 0, 0.12)',
+              cyan: '#00f0ff',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    html, body {
+      background-color: #0a0d14;
+      color: #e2e8f0;
+      overflow-x: hidden;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+    }
+    
+    /* 起漲K線炫光面板與玻璃擬態 */
+    .pro-panel {
+      background: #121622;
+      border: 1px solid #232b3e;
+      box-shadow: 0 4px 25px -3px rgba(0, 0, 0, 0.45);
+    }
+    .pro-card {
+      background: #161b28;
+      border: 1px solid #232b3e;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .pro-card:hover {
+      background: #1a2030;
+      border-color: #3b82f6;
+      box-shadow: 0 10px 30px -5px rgba(59, 130, 246, 0.25);
+      transform: translateY(-2px);
+    }
+
+    /* 起漲爆量發光動畫 */
+    @keyframes breakout-glow {
+      0%, 100% { box-shadow: 0 0 12px rgba(255, 59, 87, 0.35); }
+      50% { box-shadow: 0 0 24px rgba(255, 59, 87, 0.7); }
+    }
+    .breakout-glow {
+      animation: breakout-glow 2s infinite;
+    }
+
+    @keyframes live-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(0.9); }
+    }
+    .live-dot { animation: live-pulse 1.6s infinite; }
+
+    /* 客製滾動條 */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0d14; }
+    ::-webkit-scrollbar-thumb { background: #232b3e; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+  </style>
+</head>
+<body class="bg-[#0a0d14] text-slate-100 min-h-screen">
+  <div id="root">
+    <div style="min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; text-align: center;">
+      <div style="width: 46px; height: 46px; border: 4px solid #ff3b57; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 1.25rem;"></div>
+      <h2 style="font-size: 1.35rem; font-weight: 800; color: #ff3b57; margin-bottom: 0.5rem; letter-spacing: 0.5px;">🔥 正在載入 領漲型態 專業選股旗艦版</h2>
+      <p style="font-size: 0.875rem; color: #94a3b8; max-width: 440px; line-height: 1.6;">對接台指期夜盤、大盤加權指數與 AI 起漲訊號引擎中...</p>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // 初始股票數據庫 (含起漲特徵與關鍵防守價)
+    const BREAKOUT_STOCKS = [
+      {
+        symbol: "2330.TW",
+        name: "台積電",
+        subname: "TSMC",
+        sector: "晶圓代工龍頭",
+        close: 2420.0,
+        change: -15.0,
+        change_pct: -0.62,
+        prev_close: 2435.0,
+        ai_score: 96,
+        breakout_stars: 5,
+        breakout_strategy: ["均線多頭", "法人鎖碼", "領漲龍頭"],
+        breakout_signal: "守穩五日線支撐，主力籌碼堅實",
+        volume_ratio: 1.15,
+        rsi: 51.0,
+        pe: 26.5,
+        yield_pct: 1.4,
+        trigger_price: 2460.0,
+        support_price: 2380.0,
+        target_price: 2680.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["全球 AI 晶片代工絕對獨霸", "CoWoS 先進封裝稼動率全滿", "外資投信長期主力籌碼集中鎖定"]
+      },
+      {
+        symbol: "3017.TW",
+        name: "奇鋐",
+        subname: "AVC",
+        sector: "AI水冷散熱龍頭",
+        close: 3315.0,
+        change: 215.0,
+        change_pct: 6.94,
+        prev_close: 3100.0,
+        ai_score: 96,
+        breakout_stars: 5,
+        breakout_strategy: ["即時起漲", "爆量長紅", "布林噴出"],
+        breakout_signal: "爆量大漲 +6.94%，帶量突破新高",
+        volume_ratio: 1.95,
+        rsi: 68.4,
+        pe: 22.4,
+        yield_pct: 2.3,
+        trigger_price: 3350.0,
+        support_price: 3100.0,
+        target_price: 3800.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["水冷板與 3D VC 出貨量飆升", "美系雲端巨頭獨家水冷供應", "外資投信連續大買重金鎖碼"]
+      },
+      {
+        symbol: "2454.TW",
+        name: "聯發科",
+        subname: "MediaTek",
+        sector: "AI邊緣晶片/IC設計",
+        close: 4250.0,
+        change: 45.0,
+        change_pct: 1.07,
+        prev_close: 4205.0,
+        ai_score: 94,
+        breakout_stars: 5,
+        breakout_strategy: ["均線糾結", "法人鎖碼", "量增價揚"],
+        breakout_signal: "均線多頭發散，天璣AI晶片放量",
+        volume_ratio: 1.32,
+        rsi: 56.8,
+        pe: 17.6,
+        yield_pct: 4.6,
+        trigger_price: 4300.0,
+        support_price: 4150.0,
+        target_price: 4750.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["旗艦 AI 晶片獲全球手機龍頭導入", "特製 ASIC 架構切入雲端大廠", "高股息殖利率防禦性極高"]
+      },
+      {
+        symbol: "2317.TW",
+        name: "鴻海",
+        subname: "Foxconn",
+        sector: "AI伺服器組裝巨頭",
+        close: 244.0,
+        change: 4.5,
+        change_pct: 1.88,
+        prev_close: 239.5,
+        ai_score: 91,
+        breakout_stars: 4,
+        breakout_strategy: ["均線多頭", "法人鎖碼"],
+        breakout_signal: "突破盤整區間，法人籌碼連買",
+        volume_ratio: 1.35,
+        rsi: 58.2,
+        pe: 15.2,
+        yield_pct: 4.1,
+        trigger_price: 248.0,
+        support_price: 236.0,
+        target_price: 280.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["GB200 NVL72 整機櫃垂直整合優勢", "全球 AI 伺服器代工市佔率第一", "外資投信同買鎖碼"]
+      },
+      {
+        symbol: "3443.TW",
+        name: "創意",
+        subname: "GUC",
+        sector: "矽智財/ASIC服務",
+        close: 7480.0,
+        change: -200.0,
+        change_pct: -2.60,
+        prev_close: 7680.0,
+        ai_score: 90,
+        breakout_stars: 4,
+        breakout_strategy: ["底部打底", "W底型態"],
+        breakout_signal: "高檔回測打底支撐，ASIC專案放量",
+        volume_ratio: 1.25,
+        rsi: 48.0,
+        pe: 35.9,
+        yield_pct: 1.8,
+        trigger_price: 7680.0,
+        support_price: 7300.0,
+        target_price: 8500.0,
+        criteria: { ma_bull: false, vol_surge: false, bollinger_up: false, inst_buy: true },
+        reasons: ["台積電 3nm / CoWoS 生態系獨家夥伴", "HBM4 介面與先進封裝領先同業", "北美頂級 CSP 客製化晶片挹注"]
+      },
+      {
+        symbol: "3661.TW",
+        name: "世芯-KY",
+        subname: "Alchip",
+        sector: "特製AI晶片ASIC",
+        close: 3685.0,
+        change: -35.0,
+        change_pct: -0.94,
+        prev_close: 3720.0,
+        ai_score: 95,
+        breakout_stars: 5,
+        breakout_strategy: ["均線多頭", "法人鎖碼"],
+        breakout_signal: "雲端次世代晶片量產，技術面起漲",
+        volume_ratio: 1.45,
+        rsi: 52.3,
+        pe: 42.0,
+        yield_pct: 0.8,
+        trigger_price: 3780.0,
+        support_price: 3550.0,
+        target_price: 4350.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["北美 CSP 大客戶 3nm 專案量產", "高毛利營收比重顯著拉高", "外資主力波段吃貨"]
+      },
+      {
+        symbol: "2382.TW",
+        name: "廣達",
+        subname: "Quanta",
+        sector: "AI伺服器代工龍頭",
+        close: 322.0,
+        change: 4.0,
+        change_pct: 1.26,
+        prev_close: 318.0,
+        ai_score: 92,
+        breakout_stars: 5,
+        breakout_strategy: ["即時起漲", "均線多頭", "法人鎖碼"],
+        breakout_signal: "量增價揚突破整理平台，多頭攻堅",
+        volume_ratio: 1.48,
+        rsi: 59.2,
+        pe: 16.5,
+        yield_pct: 3.9,
+        trigger_price: 328.0,
+        support_price: 312.0,
+        target_price: 368.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["雲端三巨頭伺服器核心代工廠", "AI 伺服器營收比重超過五成", "外資調升評等與目標價"]
+      },
+      {
+        symbol: "3231.TW",
+        name: "緯創",
+        subname: "Wistron",
+        sector: "AI伺服器GPU基板",
+        close: 182.5,
+        change: 6.5,
+        change_pct: 3.69,
+        prev_close: 176.0,
+        ai_score: 90,
+        breakout_stars: 5,
+        breakout_strategy: ["即時起漲", "爆量長紅", "布林噴出"],
+        breakout_signal: "大漲 +3.69%，GPU運算主板大單放量",
+        volume_ratio: 1.68,
+        rsi: 63.5,
+        pe: 16.5,
+        yield_pct: 4.1,
+        trigger_price: 186.0,
+        support_price: 174.0,
+        target_price: 215.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["GPU 運算主板市佔超六成", "海外新產能開出全線滿載", "投信連續加碼買超"]
+      },
+      {
+        symbol: "2376.TW",
+        name: "技嘉",
+        subname: "Gigabyte",
+        sector: "AI伺服器/主機板",
+        close: 357.5,
+        change: 10.0,
+        change_pct: 2.88,
+        prev_close: 347.5,
+        ai_score: 91,
+        breakout_stars: 4,
+        breakout_strategy: ["均線糾結", "布林噴出"],
+        breakout_signal: "布林通道向上開口，水冷伺服器爆發",
+        volume_ratio: 1.52,
+        rsi: 58.6,
+        pe: 20.4,
+        yield_pct: 2.8,
+        trigger_price: 365.0,
+        support_price: 342.0,
+        target_price: 410.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["水冷伺服器產品提前布局出貨", "營收年增雙位數推進", "法人籌碼買超鎖碼"]
+      },
+      {
+        symbol: "3324.TWO",
+        name: "雙鴻",
+        subname: "Auras",
+        sector: "AI水冷與CDU散熱",
+        close: 1425.0,
+        change: 25.0,
+        change_pct: 1.79,
+        prev_close: 1400.0,
+        ai_score: 93,
+        breakout_stars: 5,
+        breakout_strategy: ["即時起漲", "法人鎖碼"],
+        breakout_signal: "水冷分歧管放量，站穩千四多頭起漲",
+        volume_ratio: 1.42,
+        rsi: 61.2,
+        pe: 21.2,
+        yield_pct: 2.5,
+        trigger_price: 1460.0,
+        support_price: 1380.0,
+        target_price: 1650.0,
+        criteria: { ma_bull: true, vol_surge: true, bollinger_up: true, inst_buy: true },
+        reasons: ["液冷 CDU 分配器與水冷板出貨量飆升", "伺服器散熱滲透率翻倍", "投信籌碼長波段做多"]
+      },
+      {
+        symbol: "6669.TW",
+        name: "緯穎",
+        subname: "Wiwynn",
+        sector: "雲端AI伺服器純度最高",
+        close: 1845.0,
+        change: -60.0,
+        change_pct: -3.15,
+        prev_close: 1905.0,
+        ai_score: 92,
+        breakout_stars: 4,
+        breakout_strategy: ["底部打底", "法人鎖碼"],
+        breakout_signal: "高檔量縮沉澱，Meta/微軟主力機櫃出貨",
+        volume_ratio: 1.15,
+        rsi: 51.2,
+        pe: 15.4,
+        yield_pct: 3.8,
+        trigger_price: 1920.0,
+        support_price: 1800.0,
+        target_price: 2250.0,
+        criteria: { ma_bull: true, vol_surge: false, bollinger_up: false, inst_buy: true },
+        reasons: ["純 AI 伺服器整機櫃出貨飆高", "本益比僅 15.4 倍具備評價低估吸引力", "外資大戶堅定持股"]
+      },
+      {
+        symbol: "2303.TW",
+        name: "聯電",
+        subname: "UMC",
+        sector: "晶圓代工/中介層",
+        close: 133.0,
+        change: 0.5,
+        change_pct: 0.38,
+        prev_close: 132.5,
+        ai_score: 86,
+        breakout_stars: 3,
+        breakout_strategy: ["底部打底", "W底型態"],
+        breakout_signal: "5.6% 高股息殖利率築底支撐",
+        volume_ratio: 1.08,
+        rsi: 53.0,
+        pe: 11.8,
+        yield_pct: 5.6,
+        trigger_price: 138.0,
+        support_price: 129.0,
+        target_price: 155.0,
+        criteria: { ma_bull: false, vol_surge: false, bollinger_up: false, inst_buy: true },
+        reasons: ["提供 CoWoS 關鍵 Interposer 中介層", "高股息殖利率帶來強大下檔支撐", "外資低檔連續買盤進駐"]
+      }
+    ];
+
+    function App() {
+      const [stocks, setStocks] = useState(BREAKOUT_STOCKS);
+      const [selectedTab, setSelectedTab] = useState('ALL'); // ALL, BREAKOUT, MA_CROSS, VOLUME, BOLLINGER, INSTITUTION, BOTTOM
+      const [searchTerm, setSearchTerm] = useState('');
+      const [minStars, setMinStars] = useState(0);
+      const [onlyMaBull, setOnlyMaBull] = useState(false);
+      const [selectedModalStock, setSelectedModalStock] = useState(null);
+
+      // 大盤起漲多空溫度計資料
+      const [marketIndices, setMarketIndices] = useState([
+        { name: "加權指數 (TAIEX)", price: "47,111.3", change: "+145.3", pct: "+0.31%", isUp: true },
+        { name: "台指期 (夜盤WTX)", price: "47,102.0", change: "+170.0", pct: "+0.36%", isUp: true, badge: "夜盤點火" },
+        { name: "櫃買指數 (TPEx)", price: "312.8", change: "-3.5", pct: "-1.11%", isUp: false },
+        { name: "台積電夜盤 (ADR)", price: "NT$ 2,360.0", change: "-58.5", pct: "-2.42%", isUp: false },
+        { name: "聯電夜盤 (ADR)", price: "NT$ 127.0", change: "-5.9", pct: "-4.41%", isUp: false },
+        { name: "輝達夜盤 (NVDA)", price: "$214.13", change: "-2.58", pct: "-1.19%", isUp: false }
+      ]);
+
+      const [syncIntervalSec, setSyncIntervalSec] = useState(2); // 預設 2 秒即時同步
+      const [countdown, setCountdown] = useState(2);
+      const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString());
+      const [isFetching, setIsFetching] = useState(false);
+      const isFetchingRef = useRef(false);
+
+      // 即時連網抓取真實最新行情
+      const fetchLiveData = async () => {
+        if (isFetchingRef.current) return;
+        isFetchingRef.current = true;
+        setIsFetching(true);
+        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+        const endpoints = isHttps ? ['/api/stocks'] : ['http://127.0.0.1:8000/api/stocks', '/api/stocks'];
+
+        try {
+          for (const ep of endpoints) {
+            try {
+              const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+              const timerId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+              const res = await fetch(ep, { signal: controller ? controller.signal : undefined });
+              if (timerId) clearTimeout(timerId);
+
+              if (res.ok) {
+                const data = await res.json();
+                if (data && data.stocks && data.stocks.length > 0) {
+                  // 將後端真實股價即時對應到起漲模型
+                  setStocks(prev => {
+                    return prev.map(stock => {
+                      const found = data.stocks.find(s => s.symbol === stock.symbol);
+                      if (found) {
+                        return {
+                          ...stock,
+                          close: found.close || stock.close,
+                          change_pct: found.change_1d_pct !== undefined ? found.change_1d_pct : stock.change_pct,
+                          change: (found.close && found.change_1d_pct) ? Number((found.close * (found.change_1d_pct / 100)).toFixed(2)) : stock.change,
+                          volume_ratio: found.vol_ratio || stock.volume_ratio,
+                          rsi: found.rsi || stock.rsi,
+                          ai_score: found.ai_score || stock.ai_score
+                        };
+                      }
+                      return stock;
+                    });
+                  });
+
+                  if (data.indices && data.indices.length > 0) {
+                    setMarketIndices(data.indices.map(idx => ({
+                      name: idx.name,
+                      price: idx.price ? idx.price.toLocaleString() : '',
+                      change: (idx.change >= 0 ? '+' : '') + (idx.change || 0),
+                      pct: (idx.change_pct >= 0 ? '+' : '') + (idx.change_pct || 0) + '%',
+                      isUp: idx.change >= 0,
+                      badge: idx.type === 'futures' ? '期貨夜盤' : idx.type === 'night' ? 'ADR夜盤' : undefined
+                    })));
+                  }
+
+                  setLastUpdated(new Date().toLocaleTimeString());
+                  return;
+                }
+              }
+            } catch (e) {
+              // 嘗試下一個 endpoint
+            }
+          }
+        } finally {
+          isFetchingRef.current = false;
+          setIsFetching(false);
+          setLastUpdated(new Date().toLocaleTimeString());
+        }
+      };
+
+      // 載入瞬間立即執行第 1 次同步！
+      useEffect(() => {
+        fetchLiveData();
+      }, []);
+
+      // 即時同步定時器 (支援 2s, 5s, 15s 或暫停)
+      useEffect(() => {
+        if (syncIntervalSec <= 0) return;
+        const interval = setInterval(() => {
+          setCountdown(prev => {
+            if (prev <= 1) {
+              fetchLiveData();
+              return syncIntervalSec;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        return () => clearInterval(interval);
+      }, [syncIntervalSec]);
+
+      // 策略分頁與搜尋過濾
+      const filteredStocks = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        return stocks.filter(stock => {
+          if (q) {
+            const matchName = stock.name.toLowerCase().includes(q);
+            const matchSymbol = stock.symbol.toLowerCase().includes(q);
+            const matchSector = stock.sector.toLowerCase().includes(q);
+            return matchName || matchSymbol || matchSector;
+          }
+
+          if (stock.breakout_stars < minStars) return false;
+          if (onlyMaBull && !stock.criteria.ma_bull) return false;
+
+          // 標籤篩選
+          if (selectedTab === 'BREAKOUT') {
+            return stock.change_pct > 0 || stock.breakout_strategy.includes('即時起漲');
+          }
+          if (selectedTab === 'MA_CROSS') {
+            return stock.criteria.ma_bull || stock.breakout_strategy.includes('均線多頭') || stock.breakout_strategy.includes('均線糾結');
+          }
+          if (selectedTab === 'VOLUME') {
+            return stock.volume_ratio >= 1.3 || stock.breakout_strategy.includes('爆量長紅');
+          }
+          if (selectedTab === 'BOLLINGER') {
+            return stock.criteria.bollinger_up || stock.breakout_strategy.includes('布林噴出');
+          }
+          if (selectedTab === 'INSTITUTION') {
+            return stock.criteria.inst_buy || stock.breakout_strategy.includes('法人鎖碼');
+          }
+          if (selectedTab === 'BOTTOM') {
+            return stock.breakout_strategy.includes('底部打底') || stock.breakout_strategy.includes('W底型態');
+          }
+
+          return true;
+        });
+      }, [stocks, selectedTab, searchTerm, minStars, onlyMaBull]);
+
+      // 計算起漲統計數據
+      const breakoutCount = stocks.filter(s => s.change_pct > 0 || s.breakout_stars >= 4).length;
+      const totalCount = stocks.length;
+      const breakoutRatio = Math.round((breakoutCount / totalCount) * 100);
+
+      return (
+        <div className="min-h-screen p-3 md:p-6 max-w-7xl mx-auto space-y-5">
+          
+          {/* 頂部起漲導覽列 Header */}
+          <header className="pro-panel p-4 md:p-5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 border-slate-800">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-600 via-red-500 to-amber-500 flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-rose-900/40">
+                🔥
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <h1 className="text-xl md:text-2xl font-black text-white tracking-wide flex items-center gap-2">
+                    <span>領漲型態</span>
+                    <span className="px-2 py-0.5 text-xs font-black bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-md shadow-xs">
+                      AI 訊號旗艦版
+                    </span>
+                  </h1>
+                  <span className="px-2.5 py-0.5 text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-full flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 live-dot"></span>
+                    盤中即時偵測中
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  專為台股領漲型態設計：均線糾結突破 × 爆量攻擊 × 主力吸籌 × 布林通道噴出
+                </p>
+              </div>
+            </div>
+
+            {/* 倒數計時與及時同步頻率選擇器 */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              
+              {/* 即時頻率選擇器 */}
+              <div className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs">
+                <span className="text-[10px] text-slate-400 px-2 font-bold flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 live-dot"></span>
+                  頻率:
+                </span>
+                {[
+                  { sec: 2, label: '⚡ 2s及時' },
+                  { sec: 5, label: '5s' },
+                  { sec: 15, label: '15s' }
+                ].map(opt => (
+                  <button
+                    key={opt.sec}
+                    onClick={() => { setSyncIntervalSec(opt.sec); setCountdown(opt.sec); }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-all ${
+                      syncIntervalSec === opt.sec
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 倒數狀態 Badge */}
+              <div className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs flex items-center gap-2">
+                <span className="text-slate-400">已同步: <strong className="text-slate-200">{lastUpdated}</strong></span>
+                <span className="px-2 py-0.5 rounded bg-rose-950/80 text-rose-300 font-black text-[11px] border border-rose-800/50">
+                  {isFetching ? '⚡ 同步中...' : `倒數 ${countdown}s`}
+                </span>
+              </div>
+
+              <button
+                onClick={() => { setCountdown(syncIntervalSec); fetchLiveData(); }}
+                disabled={isFetching}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold shadow-md shadow-rose-600/30 transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+              >
+                <span>🔄 立即重整</span>
+              </button>
+
+              <a
+                href="選股APP-V1.2.html"
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
+              >
+                <span>☀️ 白版</span>
+              </a>
+            </div>
+          </header>
+
+          {/* 大盤起漲多空溫度計 (Market Breakout Gauge) */}
+          <div className="pro-panel p-4 md:p-5 rounded-2xl space-y-3.5 border-rose-950/40 bg-gradient-to-br from-[#121622] via-[#141926] to-[#171424]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black text-rose-400 flex items-center gap-1.5">
+                  <span>⚡ 大盤起漲多空溫度計</span>
+                </span>
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                  多方起漲力道：{breakoutRatio}% (偏多震盪)
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-400 flex items-center gap-3">
+                <span>🔥 觸發起漲個股: <strong className="text-rose-400 font-extrabold">{breakoutCount}</strong> 檔</span>
+                <span>⚖️ 盤整打底: <strong className="text-slate-200 font-extrabold">{totalCount - breakoutCount}</strong> 檔</span>
+              </div>
+            </div>
+
+            {/* 大盤、台指期夜盤、台積電ADR 行情網格 */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              {marketIndices.map((idx, i) => (
+                <div key={i} className={`p-2.5 rounded-xl border flex flex-col justify-between transition-all ${
+                  idx.isUp 
+                    ? 'bg-rose-950/20 border-rose-800/40 text-rose-400' 
+                    : 'bg-emerald-950/20 border-emerald-800/40 text-emerald-400'
+                }`}>
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300">
+                    <span className="truncate">{idx.name}</span>
+                    {idx.badge && (
+                      <span className="px-1.5 py-0.2 text-[9px] bg-amber-900/60 text-amber-300 rounded font-black border border-amber-600/40">
+                        {idx.badge}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-between">
+                    <span className="text-sm font-black text-white">{idx.price}</span>
+                    <span className="text-[11px] font-extrabold">
+                      {idx.isUp ? '▲ ' : '▼ '}{idx.pct}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 起漲六大策略分頁 Tab Bar */}
+          <div className="pro-panel p-3 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 w-full lg:w-auto">
+              {[
+                { id: 'ALL', label: '🔥 全部起漲標的', count: stocks.length },
+                { id: 'BREAKOUT', label: '🚀 即時爆發起漲', count: stocks.filter(s => s.change_pct > 0).length },
+                { id: 'MA_CROSS', label: '⚡ 均線糾結突破', count: stocks.filter(s => s.criteria.ma_bull).length },
+                { id: 'VOLUME', label: '💥 爆量長紅攻擊', count: stocks.filter(s => s.volume_ratio >= 1.3).length },
+                { id: 'BOLLINGER', label: '💎 布林通道噴出', count: stocks.filter(s => s.criteria.bollinger_up).length },
+                { id: 'INSTITUTION', label: '🏛️ 外資投信鎖碼', count: stocks.filter(s => s.criteria.inst_buy).length },
+                { id: 'BOTTOM', label: '🏰 W底/築底起漲', count: stocks.filter(s => s.breakout_strategy.includes('底部打底') || s.breakout_strategy.includes('W底型態')).length },
+              ].map(tab => {
+                const isActive = selectedTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setSelectedTab(tab.id)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-900/40 border border-rose-500/50 scale-[1.02]'
+                        : 'bg-slate-900/80 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[10px] ${isActive ? 'bg-black/30 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 搜尋欄位 */}
+            <div className="relative w-full lg:w-64">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="搜尋代號 (例: 2330, 奇鋐)..."
+                className="w-full bg-[#161b28] text-xs text-white px-3.5 py-2 rounded-xl border border-slate-700/80 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 placeholder:text-slate-500 transition-all"
+              />
+              {searchTerm && (
+                <button onClick={() => setSearchTerm('')} className="absolute right-3 top-2 text-slate-400 text-xs">✕</button>
+              )}
+            </div>
+          </div>
+
+          {/* 個股起漲卡片網格 (Stock Cards Grid) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredStocks.map(stock => {
+              const isUp = stock.change_pct >= 0;
+              const isLimitUp = stock.change_pct >= 9.5;
+
+              return (
+                <div
+                  key={stock.symbol}
+                  className={`pro-card p-4 md:p-5 rounded-2xl flex flex-col justify-between space-y-4 ${
+                    isUp ? 'border-rose-950/60' : 'border-slate-800'
+                  }`}
+                >
+                  <div>
+                    {/* 卡片頂部：代號名稱、起漲星級與產業 */}
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                            {stock.sector}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-400 font-mono">
+                            {stock.symbol}
+                          </span>
+                        </div>
+                        <h3 className="text-xl font-black text-white mt-1 flex items-center gap-1.5">
+                          {stock.name}
+                          <span className="text-xs font-bold text-slate-400">({stock.subname})</span>
+                        </h3>
+                      </div>
+
+                      {/* 起漲星級與 AI 分數 */}
+                      <div className="flex flex-col items-end">
+                        <div className="text-amber-400 text-xs font-black tracking-widest">
+                          {'★'.repeat(stock.breakout_stars)}{'☆'.repeat(5 - stock.breakout_stars)}
+                        </div>
+                        <span className="text-[10px] font-black text-rose-400 mt-0.5 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/40">
+                          起漲力 {stock.ai_score} 分
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 即時價格與漲跌幅 Banner */}
+                    <div className="mt-3.5 p-3 rounded-xl bg-[#0e121a] border border-slate-800/80 flex items-center justify-between">
+                      <div>
+                        <div className="text-[10px] text-slate-400">最新即時現價</div>
+                        <div className="text-2xl font-black text-white tracking-tight font-mono">
+                          NT$ {stock.close.toLocaleString()}
+                        </div>
+                      </div>
+
+                      <div className={`px-3 py-1.5 rounded-xl border text-sm font-black flex items-center gap-1 ${
+                        isUp 
+                          ? 'bg-rose-950/60 text-rose-400 border-rose-700/60 breakout-glow' 
+                          : 'bg-emerald-950/60 text-emerald-400 border-emerald-700/60'
+                      }`}>
+                        <span>{isUp ? '▲ +' : '▼ '}{stock.change_pct}%</span>
+                        {isLimitUp && <span className="text-[10px] bg-red-600 text-white px-1 rounded ml-1">漲停</span>}
+                      </div>
+                    </div>
+
+                    {/* 起漲策略標籤 Badges */}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {stock.breakout_strategy.map((tag, idx) => (
+                        <span key={idx} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-950/40 text-rose-300 border border-rose-800/50 flex items-center gap-1">
+                          <span>⚡</span> {tag}
+                        </span>
+                      ))}
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-950/40 text-amber-300 border border-amber-800/50">
+                        量比 {stock.volume_ratio}x
+                      </span>
+                    </div>
+
+                    {/* 起漲四項關鍵檢核表 (Checklist) */}
+                    <div className="mt-3.5 p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 space-y-1.5 text-xs">
+                      <div className="text-[11px] font-bold text-slate-400 mb-1 flex items-center justify-between">
+                        <span>🔍 起漲訊號四重檢驗:</span>
+                        <span className="text-rose-400 font-extrabold">{stock.breakout_signal}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className={`flex items-center gap-1.5 ${stock.criteria.ma_bull ? 'text-rose-400 font-bold' : 'text-slate-500'}`}>
+                          <span>{stock.criteria.ma_bull ? '✅' : '⚪'}</span>
+                          <span>均線多頭排列</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${stock.criteria.vol_surge ? 'text-rose-400 font-bold' : 'text-slate-500'}`}>
+                          <span>{stock.criteria.vol_surge ? '✅' : '⚪'}</span>
+                          <span>量能放大攻擊</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${stock.criteria.bollinger_up ? 'text-rose-400 font-bold' : 'text-slate-500'}`}>
+                          <span>{stock.criteria.bollinger_up ? '✅' : '⚪'}</span>
+                          <span>布林上軌突破</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${stock.criteria.inst_buy ? 'text-rose-400 font-bold' : 'text-slate-500'}`}>
+                          <span>{stock.criteria.inst_buy ? '✅' : '⚪'}</span>
+                          <span>法人大戶鎖碼</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 關鍵戰略價位 (Trigger / Support / Target) */}
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400">起漲突破價</div>
+                        <div className="font-black text-rose-400 font-mono mt-0.5">{stock.trigger_price}</div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400">防守支撐點</div>
+                        <div className="font-black text-amber-400 font-mono mt-0.5">{stock.support_price}</div>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                        <div className="text-[10px] text-slate-400">波段目標區</div>
+                        <div className="font-black text-emerald-400 font-mono mt-0.5">{stock.target_price}</div>
+                      </div>
+                    </div>
+
+                    {/* AI 核心起漲理由 */}
+                    <div className="mt-3 space-y-1 text-xs">
+                      {stock.reasons.slice(0, 2).map((r, ri) => (
+                        <div key={ri} className="text-slate-400 flex items-start gap-1.5 text-[11px] leading-tight">
+                          <span className="text-rose-500 font-bold mt-0.5">▸</span>
+                          <span>{r}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 檢視起漲技術線圖按鈕 */}
+                  <button
+                    onClick={() => setSelectedModalStock(stock)}
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 hover:from-rose-900/60 hover:to-red-900/60 text-slate-200 hover:text-white border border-slate-700 hover:border-rose-500 text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <span>📊 展開 領漲型態K線圖 與 價量籌碼</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 個股起漲技術分析 Modal 彈窗 */}
+          {selectedModalStock && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 md:p-6 z-50">
+              <div className="pro-panel p-5 md:p-6 rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-4 border-rose-900/50 shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-600/20 border border-rose-500 flex items-center justify-center text-xl">
+                      📈
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-black text-white">{selectedModalStock.name} ({selectedModalStock.symbol})</h2>
+                        <span className="px-2 py-0.5 rounded text-xs font-black bg-rose-600 text-white">
+                          起漲 {selectedModalStock.ai_score} 分
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {selectedModalStock.sector} · 即時現價: NT$ {selectedModalStock.close} ({selectedModalStock.change_pct}%)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedModalStock(null)}
+                    className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* 戰略指標速覽 */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-slate-400 text-[10px]">突破觸發價</span>
+                    <div className="text-base font-black text-rose-400 font-mono mt-0.5">NT$ {selectedModalStock.trigger_price}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-slate-400 text-[10px]">停損防守線</span>
+                    <div className="text-base font-black text-amber-400 font-mono mt-0.5">NT$ {selectedModalStock.support_price}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-slate-400 text-[10px]">量比強度</span>
+                    <div className="text-base font-black text-white font-mono mt-0.5">{selectedModalStock.volume_ratio} 倍</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-slate-400 text-[10px]">RSI(14) 訊號</span>
+                    <div className="text-base font-black text-emerald-400 font-mono mt-0.5">{selectedModalStock.rsi}</div>
+                  </div>
+                </div>
+
+                {/* 領漲型態K線模擬與均線通道 (SVG Render) */}
+                <div className="p-4 rounded-2xl bg-[#0b0e14] border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span>🔥 日K線多頭領漲軌跡圖 (含 MA5 / MA20 / MA60 / 布林帶)</span>
+                    <span className="text-rose-400">● MA5 短多 ● MA20 月線 ● 布林上軌</span>
+                  </div>
+                  
+                  {/* SVG 互動示意線圖 */}
+                  <div className="w-full h-48 bg-slate-950/60 rounded-xl p-2 flex items-center justify-center relative overflow-hidden border border-slate-900">
+                    <svg viewBox="0 0 600 160" className="w-full h-full">
+                      {/* 格線 */}
+                      <line x1="0" y1="40" x2="600" y2="40" stroke="#1e293b" strokeDasharray="3 3" />
+                      <line x1="0" y1="80" x2="600" y2="80" stroke="#1e293b" strokeDasharray="3 3" />
+                      <line x1="0" y1="120" x2="600" y2="120" stroke="#1e293b" strokeDasharray="3 3" />
+                      
+                      {/* 布林上軌 (青藍色) */}
+                      <path d="M 20 110 Q 150 95 300 65 T 580 30" fill="none" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="4 4" opacity="0.6" />
+                      
+                      {/* MA20 (黃色) */}
+                      <path d="M 20 125 Q 150 115 300 95 T 580 65" fill="none" stroke="#facc15" strokeWidth="2" opacity="0.8" />
+
+                      {/* MA5 (紅色多頭起漲) */}
+                      <path d="M 20 135 Q 150 120 300 85 T 580 40" fill="none" stroke="#ff3b57" strokeWidth="2.5" />
+
+                      {/* 突破標註點 */}
+                      <circle cx="480" cy="50" r="5" fill="#ff3b57" />
+                      <text x="490" y="45" fill="#ff3b57" fontSize="11" fontWeight="bold">起漲突破點 🔥</text>
+                    </svg>
+                  </div>
+                </div>
+
+                {/* 完整起漲評估依據 */}
+                <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+                  <div className="text-xs font-black text-rose-400">💡 專家級起漲分析總評:</div>
+                  <ul className="text-xs text-slate-300 space-y-1.5 list-disc pl-4">
+                    {selectedModalStock.reasons.map((r, i) => (
+                      <li key={i}><strong className="text-white">{r}</strong></li>
+                    ))}
+                    <li>量價結構健康：現階段成交量較五日均量維持在 <span className="text-amber-400 font-bold">{selectedModalStock.volume_ratio} 倍</span>，屬於主力真突破。</li>
+                    <li>操作策略建議：拉回測試支撐價 <span className="text-amber-400 font-bold">{selectedModalStock.support_price}</span> 未跌破皆為強勢多方格局，波段目標看至 <span className="text-emerald-400 font-bold">{selectedModalStock.target_price}</span>。</li>
+                  </ul>
+                </div>
+
+                <button
+                  onClick={() => setSelectedModalStock(null)}
+                  className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all"
+                >
+                  關閉技術診斷
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
